@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useGeminiLive } from '../hooks/useGeminiLive';
 import Visualizer from './Visualizer';
 import { Message } from '../types';
@@ -13,11 +13,12 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onSessionEnd }) => {
   const [timeLeft, setTimeLeft] = useState(SESSION_DURATION);
   const [transcript, setTranscript] = useState<Message[]>([]);
   const transcriptRef = useRef<Message[]>([]); // Ref to keep track for closure access
+  const [showLongWaitMessage, setShowLongWaitMessage] = useState(false);
   
   // Callback to update transcript state
-  const handleTranscriptUpdate = (text: string, isUser: boolean) => {
-     // Simple debouncing/concatenating could be added here, 
-     // but appending is fine for analysis purposes.
+  // CRITICAL: Must be memoized to prevent useGeminiLive from recreating connect/disconnect
+  // on every render, which triggers the useEffect cleanup and disconnects the session.
+  const handleTranscriptUpdate = useCallback((text: string, isUser: boolean) => {
      const newMessage: Message = {
          id: Date.now().toString() + Math.random(),
          role: isUser ? 'user' : 'model',
@@ -30,7 +31,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onSessionEnd }) => {
          transcriptRef.current = updated;
          return updated;
      });
-  };
+  }, []);
 
   const { connect, disconnect, isConnected, isSpeaking, analyser, error } = useGeminiLive(handleTranscriptUpdate);
   const hasStartedRef = useRef(false);
@@ -41,8 +42,21 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onSessionEnd }) => {
         connect();
         hasStartedRef.current = true;
     }
-    return () => disconnect();
+    // Cleanup on unmount only
+    return () => {
+        disconnect();
+    };
   }, [connect, disconnect]);
+
+  // Monitor connection time
+  useEffect(() => {
+      if (!isConnected && !error) {
+          const timer = setTimeout(() => setShowLongWaitMessage(true), 8000);
+          return () => clearTimeout(timer);
+      } else {
+          setShowLongWaitMessage(false);
+      }
+  }, [isConnected, error]);
 
   // Timer Logic
   useEffect(() => {
@@ -98,11 +112,19 @@ const LiveSession: React.FC<LiveSessionProps> = ({ onSessionEnd }) => {
                  </div>
              </div>
          ) : (
-             <div className="text-slate-500">
-                {error ? '❌' : 'Connecting...'}
+             <div className="text-slate-500 flex flex-col items-center justify-center text-center p-2">
+                {error ? <span className="text-2xl mb-2">❌</span> : <div className="w-8 h-8 border-2 border-slate-500 border-t-cyan-400 rounded-full animate-spin mb-2"></div>}
+                <span className="text-xs">{error ? 'Error' : 'Connecting...'}</span>
              </div>
          )}
       </div>
+
+      {/* Long Wait Message */}
+      {showLongWaitMessage && !isConnected && !error && (
+          <div className="text-yellow-400 text-xs text-center max-w-[200px] animate-fade-in bg-yellow-900/20 p-2 rounded">
+              Taking longer than usual... Please check if you allowed microphone access.
+          </div>
+      )}
 
       {/* Timer */}
       <div className="flex flex-col items-center space-y-2">
