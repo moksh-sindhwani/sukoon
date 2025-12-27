@@ -1,0 +1,7 @@
+{
+  "name": "Sukoon Bot",
+  "description": "A compassionate AI companion for quick mental health check-ins and video recommendations.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
